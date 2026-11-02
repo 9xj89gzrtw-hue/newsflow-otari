@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NewsFlow Studio — Otari edition</title>
+<meta name="description" content="A news digest that routes every model call through an Otari gateway: one open-weight model triages, another writes, and the gateway enforces the budget.">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 6h11M4 12h16M4 18h8"/><circle cx="19" cy="6" r="2"/></svg>
+      <span>NewsFlow Studio</span>
+    </div>
+    <div class="meta">
+      <span class="chip" id="gateway-chip">gateway: checking</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="intro">
+    <h1>One digest, two models, one gateway.</h1>
+    <p class="lede">
+      A cheap open-weight model reads every story and scores it. A stronger one writes the
+      digest from the survivors. Both calls go through Otari, so the budget is enforced before
+      the request leaves this server, and every model that answered is named below.
+    </p>
+  </section>
+
+  <div class="grid">
+    <section class="panel controls">
+      <h2>Run</h2>
+      <fieldset>
+        <legend>Sources</legend>
+        <label class="row"><input type="checkbox" value="hacker-news" checked> Hacker News</label>
+        <label class="row"><input type="checkbox" value="lobsters" checked> Lobsters</label>
+      </fieldset>
+      <div class="row-split">
+        <label>Stories to write <input type="number" id="topn" value="5" min="1" max="8"></label>
+        <label>Token cap <input type="number" id="maxtok" value="40000" min="4000" step="4000"></label>
+      </div>
+      <button class="btn primary" id="run" type="button">Build today&rsquo;s digest</button>
+      <p class="fine" id="hint">Nothing is sent until you press the button.</p>
+
+      <h2 class="mt">Models</h2>
+      <dl class="kv">
+        <dt>Triage</dt><dd class="mono" id="m-triage">—</dd>
+        <dt>Writer</dt><dd class="mono" id="m-write">—</dd>
+        <dt>Fallback</dt><dd class="mono" id="m-fallback">—</dd>
+      </dl>
+    </section>
+
+    <section class="panel output">
+      <h2>Digest</h2>
+      <div id="digest" class="digest empty">No digest yet. Press the button on the left.</div>
+      <div id="stats" class="stats" hidden></div>
+    </section>
+  </div>
+
+  <section class="panel" id="audit-panel" hidden>
+    <h2>Guardrail audit</h2>
+    <p class="fine">
+      Every fetched page is screened before a model sees it. Instruction-shaped lines are dropped
+      and personal data is replaced. A row with no flags means the screen ran and found nothing.
+    </p>
+    <div class="table-wrap">
+      <table id="audit">
+        <thead><tr><th>Story</th><th>Fetch</th><th>Injected lines</th><th>Redactions</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer class="foot wrap">
+  <span>Static UI, one JSON endpoint, no accounts. Model traffic goes to the Otari gateway only.</span>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Unit tests
+        # The live tests skip themselves unless OTARI_LIVE=1, so CI needs no
+        # gateway and no key. That is deliberate: a green build must mean the
+        # code is sound, not that a free router happened to answer today.
+        run: npm test
+
+      - name: Syntax check every module
+        run: |
+          for f in server.mjs lib/*.mjs public/app.js tests/*.mjs; do
+            node --check "$f"
+          done
+
+      - name: Fail if a secret is committed
+        run: |
+          if grep -rInE 'tk-[A-Za-z0-9_-]{20,}' --include='*.mjs' --include='*.js' --include='*.json' --include='*.md' .; then
+            echo "::error::an Otari key is in the tree"
+            exit 1
+          fi
