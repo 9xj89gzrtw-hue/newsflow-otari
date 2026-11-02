@@ -138,9 +138,14 @@ const server = createServer(async (req, res) => {
 });
 
 const port = Number(process.env.PORT) || 8787;
-server.listen(port, () => {
-  console.log(`newsflow-otari-studio on http://localhost:${port}`);
-  console.log(`gateway: ${process.env.OTARI_BASE_URL || "http://localhost:8010/api/v1"}`);
-});
+
+// Only listen when this file is the entry point. Importing it (a test that
+// wants `readFeed`, for instance) must not bind a port.
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  server.listen(port, () => {
+    console.log(`newsflow-otari-studio on http://localhost:${port}`);
+    console.log(`gateway: ${process.env.OTARI_BASE_URL || "http://localhost:8010/api/v1"}`);
+  });
+}
 
 export { server, readFeed, FEEDS };
