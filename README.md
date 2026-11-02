@@ -31,8 +31,14 @@ providers:
     api_base: "http://host.docker.internal:3928/v1"
     api_key: "local"
     models: [free-fast, free-best, free-coder]
+  ollama:
+    api_base: "http://host.docker.internal:11434"
 ' \
   mzdotai/otari:latest
+
+# 1b. Optional, for the two-model run: a local open-weight model.
+docker run -d --name ollama -p 11434:11434 -v ollama-models:/root/.ollama ollama/ollama:latest
+docker exec ollama ollama pull qwen2.5:1.5b-instruct
 
 # 2. The key Otari prints once on first boot:
 docker logs otari-demo 2>&1 | grep -oE 'tk-[A-Za-z0-9_-]+' | head -1
@@ -62,16 +68,30 @@ So the app records the `model` field from every gateway response and reports:
 }
 ```
 
-When `collapsed` is true the UI says so in a warning pill instead of claiming two models. To get a
-genuine two-model run, point the two roles at backends that cannot collapse into each other:
+That is a real run on this machine: both aliases resolved to one model, and the app said so instead of
+claiming two.
 
-| Role | Backend | Example |
-|---|---|---|
-| triage | a small local open-weight model, many cheap calls | `ollama:qwen2.5:1.5b` |
-| write | a larger hosted open-weight model, one call | `localrouter:free-best` |
+To get a genuine two-model run, point the roles at backends that cannot collapse into each other —
+one local open-weight model and one hosted:
 
-That is the configuration the demo should be recorded with, and it is also the cheapest one: the
-model that reads sixteen articles is the 1.5B, and the model that writes six sentences is the good one.
+```bash
+OTARI_MODEL_TRIAGE="ollama:qwen2.5:1.5b-instruct" \
+OTARI_MODEL_WRITE="localrouter:free-best" \
+OTARI_API_KEY=tk-... npm start
+```
+
+Measured with that split, three fixture stories (one a sponsored post):
+
+```
+roles:   triage qwen2.5:1.5b-instruct (local Ollama)  write qwen/qwen3.7-flash:free (router)
+distinct: true        calls: 4 (3 triage + 1 writer)   tokens: 789   time: 13.8s
+chosen:  "Rust 1.84 ships async closures", "Postgres 18 released"   (sponsored story dropped)
+```
+
+That is also the cheapest shape: the model that reads every story is a 1.5B running on the same
+machine, and the model that writes six sentences is the good one. The `roles` field is what turns the
+"two models" claim into a measurement, and `tests/live.test.mjs` asserts the report is consistent
+rather than asserting the router was lucky.
 
 ## What Otari does here
 
