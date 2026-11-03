@@ -154,3 +154,38 @@ test("a constructor without a key fails loudly instead of calling an open endpoi
   assert.throws(() => new OtariClient({ baseUrl: "http://x", apiKey: "", models: {} }), /needs an apiKey/);
   assert.throws(() => new OtariClient({ baseUrl: "", apiKey: "k", models: {} }), /needs a baseUrl/);
 });
+
+test("tool availability is read from the deployment, so a disabled fetcher is visible at startup", async () => {
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    seen.push({ url, method: init.method, auth: init.headers.authorization });
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "otari_web_fetch", available: false, reason: "workspace_disabled" },
+            { id: "otari_code_execution", available: true, reason: null }
+          ]
+        })
+    };
+  };
+  const client = new OtariClient({ baseUrl: "https://otari.ai/api/v1", apiKey: "otk-test", models: {}, fetchImpl });
+  const out = await client.tools();
+  assert.deepEqual(seen, [{ url: "https://otari.ai/api/v1/tools", method: "GET", auth: "Bearer otk-test" }]);
+  assert.equal(out.known, true);
+  assert.deepEqual(out.tools[0], { id: "otari_web_fetch", available: false, reason: "workspace_disabled" });
+  assert.equal(out.tools[1].available, true);
+});
+
+test("an older gateway without a tools endpoint reports unknown instead of throwing", async () => {
+  const client = new OtariClient({
+    baseUrl: "http://localhost:8010/api/v1",
+    apiKey: "tk-virtual",
+    models: {},
+    fetchImpl: async () => ({ ok: false, status: 404, text: async () => "not found" })
+  });
+  assert.deepEqual(await client.tools(), { known: false });
+});

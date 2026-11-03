@@ -178,6 +178,32 @@ That is the branch, not a crash: a linkless story keeps its feed description and
 why. A deployment with a search backend fills `otari_tool_calls[].sources` and the app uses those
 URLs instead of asking the model to name a source.
 
+### A tool can be off, and the app says so before it spends anything
+
+`GET /api/v1/tools` reports what the deployment will actually run. On the hosted platform I tested,
+both web tools were switched off by workspace policy:
+
+```
+$ curl -sS https://eu.api.otari.ai/api/v1/tools -H "Otari-Key: $OTARI_API_KEY"
+otari_web_fetch        available=false  reason=workspace_disabled
+otari_web_search       available=false  reason=workspace_disabled
+otari_code_execution   available=true   reason=null
+```
+
+A forced tool call to a disabled tool is answered with an error, so the app would fall back to its own
+fetcher and the audit would say `via=direct` — correct, but only visible after a paid run. So the
+server asks once at startup and prints it:
+
+```
+newsflow-otari-studio on http://localhost:8787
+gateway: https://eu.api.otari.ai/api/v1
+[tools] available: otari_code_execution | off: otari_web_fetch (workspace_disabled), otari_web_search (workspace_disabled)
+```
+
+An older gateway without that endpoint logs `[tools] gateway does not report tool availability`
+instead of failing. Turning the tool back on is a dashboard setting, not an app change; the endpoints
+behind it (`/api/v1/tool-settings`, `/api/v1/search-tools`) require a master key.
+
 ## What Otari does here
 
 | Capability | Where it is used, not just enabled |
@@ -210,7 +236,7 @@ A row with no flags means the screen ran and found nothing. That is a different 
 ## Tests
 
 ```bash
-npm test        # 51 checks, no network
+npm test        # 53 checks, no network
 npm run test:live   # 3 checks against a running gateway
 ```
 

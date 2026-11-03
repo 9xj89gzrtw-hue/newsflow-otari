@@ -241,6 +241,22 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   server.listen(port, () => {
     console.log(`newsflow-otari-studio on http://localhost:${port}`);
     console.log(`gateway: ${process.env.OTARI_BASE_URL || DEFAULT_BASE_URL}`);
+
+    // On the hosted platform there are no container logs, and a workspace can
+    // switch the gateway's web tools off, in which case every run fetches pages
+    // itself and the audit says `via=direct`. Saying it once at startup is
+    // cheaper than discovering it after a paid run.
+    Promise.resolve()
+      .then(() => client().tools())
+      .then((t) => {
+        if (!t.known) return console.log("[tools] gateway does not report tool availability");
+        const on = t.tools.filter((x) => x.available).map((x) => x.id);
+        const off = t.tools.filter((x) => !x.available).map((x) => `${x.id} (${x.reason})`);
+        console.log(
+          `[tools] available: ${on.join(", ") || "none"}` + (off.length ? ` | off: ${off.join(", ")}` : "")
+        );
+      })
+      .catch(() => {});
   });
 }
 

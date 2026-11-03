@@ -29,8 +29,8 @@ OTARI_MODEL_FALLBACK=<third-model> npm start
 open http://localhost:8787
 ```
 
-Keep the terminal visible: `npm start` prints `gateway: https://otari.ai/api/v1`, and every run prints
-one `[digest] gateway=… tokens=… calls=… roles=…` line. That line is what you point at when the
+Keep the terminal visible: `npm start` prints `gateway: https://otari.ai/api/v1` and one `[tools]`
+line, and every run prints one `[digest] gateway=… tokens=… calls=… roles=…` line. That line is what you point at when the
 narration says the calls went through Otari.
 
 If you record the self-hosted variant instead, start the container from the README and keep
@@ -89,7 +89,8 @@ Switch to the terminal and point at the run line:
 ```
 
 > "Here is the same run from the server side. The gateway host is in the line, the token count is
-> what Otari reported, not my own estimate, and the page never sees the key. The page calls my
+> what Otari reported — from the gateway's own `usage`, not my own estimate — and the page never sees
+> the key. The page calls my
 > server, my server calls Otari.ai, and Otari calls the provider."
 
 If you run the self-hosted variant, show `docker logs -f otari-demo` instead and say that it is the
@@ -129,7 +130,7 @@ Then show the budget refusal, which is the point of the whole exercise:
 
 ## 4:00-4:30 — Close
 
-> "The repo is `newsflow-otari`, MIT, no build step, fifty-one tests, of which three need a live
+> "The repo is `newsflow-otari`, MIT, no build step, fifty-three tests, of which three need a live
 > gateway and skip themselves without one. The written feedback is in `FEEDBACK.md` with
 > the exact commands and responses."
 

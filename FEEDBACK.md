@@ -111,3 +111,55 @@ Missing, in the order I would want it:
 4. A worked Docker example that uses `OTARI_CONFIG_YAML` and a private model server end to end. The
    quickstart assumes a public provider and a key, which is not the self-hosted case the project is
    pitching.
+
+## 5. Addendum: the hosted platform, with a real key (2026-11-03)
+
+The hackathon asks for `Otari.ai` itself, so I pointed the app at it. What the hosted deployment does
+that the self-hosted image does not:
+
+**a) A key is bound to a host, and the error says where to go.**
+```
+$ curl -sS https://otari.ai/api/v1/models -H "Otari-Key: $KEY"
+421 {"detail":"This API key belongs to eu.api.otari.ai. Send the request there instead."}
+```
+That is a good error. The one thing missing is that the dashboard never told me which host issued the
+key; the 421 did.
+
+**b) No model on the hosted catalogue is free**, so a first call without a top-up fails on balance
+rather than on anything the developer controls:
+```
+$ curl -sS https://eu.api.otari.ai/api/v1/chat/completions -H "Otari-Key: $KEY" \
+    -d '{"model":"alibaba/qwen-3.5-35b-a3b","messages":[{"role":"user","content":"Hello"}]}'
+402 {"detail":"Insufficient funds ($0.00) to serve this request.","code":"insufficient_funds"}
+```
+`GET /api/v1/models` lists 117 models; none has `pricing_source: none` or `deployment_managed`, so
+unlike the local image there is no zero-cost path to a first successful request. A free tier model, or
+a documented promo key, would let someone run the quickstart before deciding to pay.
+
+**c) The hosted catalogue uses different model names**, and the alias names in the self-hosted docs do
+not resolve:
+```
+400 {"detail":"Unknown or unsupported model 'localrouter:free-best'. Send a 'provider:model'
+     selector, an alias, or a model id from the catalog (GET /api/v1/models).","code":"invalid_model"}
+```
+The message is excellent — it names the fix. Worth putting the same sentence in the docs' first
+example.
+
+**d) `GET /api/v1/tools` is the best endpoint I found**, and it is what made a silent failure visible:
+```
+$ curl -sS https://eu.api.otari.ai/api/v1/tools -H "Otari-Key: $KEY"
+otari_web_fetch        available=false  reason=workspace_disabled
+otari_web_search       available=false  reason=workspace_disabled
+otari_code_execution   available=true   reason=null
+```
+I had written a fallback for "the gateway will not run this tool", and without this endpoint the only
+symptom would have been a line in my own audit. Being able to ask *before* sending a request is worth
+keeping. Two small asks: report `available` and `reason` in the 400 body when a disabled tool is
+requested, and make `/api/v1/tool-settings` readable with a normal key (it answers
+`401 Invalid master key`, so a non-admin user cannot even see why the tool is off, only that it is).
+
+**e) The default workspace disables both web tools.** For a hackathon whose rubric pays 10 points for
+"web search or web fetch", a fresh hosted workspace arriving with `workspace_disabled` on both is a
+trap: the app is correct, the gateway refuses, and the failure looks like the app's. Enabling them by
+default, or saying so in the onboarding checklist, would remove a whole class of lost points.
+
