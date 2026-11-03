@@ -67,8 +67,13 @@ async function readFeed(id, limit = 8) {
   return items;
 }
 
+/* The hackathon asks for the hosted platform at otari.ai, so that is the
+ * default. A self-hosted gateway is the same API: point OTARI_BASE_URL at
+ * http://localhost:8010/api/v1 and nothing else changes. */
+const DEFAULT_BASE_URL = "https://otari.ai/api/v1";
+
 function client() {
-  const baseUrl = process.env.OTARI_BASE_URL || "http://localhost:8010/api/v1";
+  const baseUrl = process.env.OTARI_BASE_URL || DEFAULT_BASE_URL;
   const apiKey = process.env.OTARI_API_KEY || "";
   return new OtariClient({
     baseUrl,
@@ -184,6 +189,15 @@ async function handleDigest(req, res) {
     const tools = process.env.OTARI_WEB_FETCH === "off" ? null : new GatewayTools({ client: runClient });
     const result = await runDigest({ items, client: runClient, budget, tools, topN: Number(input.topN) || 5 });
 
+    // One line per run, with the gateway host in it: a screen recording has
+    // something to show on the hosted path, where there are no container logs.
+    const gateway = process.env.OTARI_BASE_URL || DEFAULT_BASE_URL;
+    console.log(
+      `[digest] gateway=${gateway} items=${result.stats.items} tokens=${result.stats.budget.tokens} ` +
+      `calls=${result.stats.budget.calls} ms=${result.stats.ms} ` +
+      `roles=${result.stats.roles.distinct ? "distinct" : "collapsed"}`
+    );
+
     const after = reservation.commit(result.stats.budget.tokens);
     return json(res, 200, { ok: true, user: { id: userId, ...after }, ...result });
   } catch (err) {
@@ -226,7 +240,7 @@ const port = Number(process.env.PORT) || 8787;
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   server.listen(port, () => {
     console.log(`newsflow-otari-studio on http://localhost:${port}`);
-    console.log(`gateway: ${process.env.OTARI_BASE_URL || "http://localhost:8010/api/v1"}`);
+    console.log(`gateway: ${process.env.OTARI_BASE_URL || DEFAULT_BASE_URL}`);
   });
 }
 

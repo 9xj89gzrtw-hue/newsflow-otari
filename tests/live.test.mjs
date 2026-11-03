@@ -8,7 +8,7 @@
  * fills from real usage.
  *
  *   docker run -d --name otari-demo -p 8010:8000 ... mzdotai/otari:latest
- *   OTARI_LIVE=1 OTARI_API_KEY=tk-... OTARI_BASE_URL=http://localhost:8010/api/v1 \
+ *   OTARI_LIVE=1 OTARI_API_KEY=... \
  *     node --test tests/live.test.mjs
  */
 
@@ -18,7 +18,9 @@ import { OtariClient, Budget } from "../lib/otari.mjs";
 import { runDigest } from "../lib/pipeline.mjs";
 
 const live = process.env.OTARI_LIVE === "1";
-const baseUrl = process.env.OTARI_BASE_URL || "http://localhost:8010/api/v1";
+// Hosted by default (the hackathon requirement); a self-hosted gateway is the
+// same API and is selected with OTARI_BASE_URL=http://localhost:8010/api/v1.
+const baseUrl = process.env.OTARI_BASE_URL || "https://otari.ai/api/v1";
 const apiKey = process.env.OTARI_API_KEY || "";
 
 const models = {

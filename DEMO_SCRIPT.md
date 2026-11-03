@@ -13,26 +13,36 @@ You can record both in one take if you keep them separate in the submission form
 
 ## Before you record
 
-```bash
-# gateway (keep the terminal visible in a second window, it is part of the story)
-docker ps --filter name=otari-demo
+Record against the **hosted platform** — the rules say the project must use Otari.ai, and the startup
+line is your proof on camera.
 
-# the app
+```bash
+# 1. A key from https://otari.ai, then the models that deployment serves:
+curl -sS https://otari.ai/api/v1/models -H "Authorization: Bearer $OTARI_API_KEY"
+
+# 2. The app, with one model per role (names from the answer above):
 cd newsflow-otari-studio
-OTARI_API_KEY=$(cat /tmp/otari_key.txt) npm start
+OTARI_API_KEY=$OTARI_API_KEY \
+OTARI_MODEL_TRIAGE=<small-open-weight-model> \
+OTARI_MODEL_WRITE=<larger-model> \
+OTARI_MODEL_FALLBACK=<third-model> npm start
 open http://localhost:8787
 ```
 
-Have the gateway log open in a terminal: `docker logs -f otari-demo`. Showing the request arriving at
-Otari is worth more than any slide.
+Keep the terminal visible: `npm start` prints `gateway: https://otari.ai/api/v1`, and every run prints
+one `[digest] gateway=… tokens=… calls=… roles=…` line. That line is what you point at when the
+narration says the calls went through Otari.
+
+If you record the self-hosted variant instead, start the container from the README and keep
+`docker logs -f otari-demo` open; set `OTARI_BASE_URL=http://localhost:8010/api/v1`. Say on camera
+which one you are running.
 
 ## 0:00-0:30 — What this is
 
 > "This is NewsFlow Studio. It builds a technical news digest from Hacker News and Lobsters. Two
 > open-weight models do two different jobs: a small one triages every story, and a bigger one writes
-> the digest. Every model call goes through an Otari gateway that I run myself, so the budget is
-> enforced before a request leaves my server, and the gateway, not my code, decides which model
-> answers."
+> the digest. Every model call goes through the Otari gateway — here the hosted platform at
+> otari.ai — so the gateway, not my code, decides which model answers and what each call costs."
 
 Show the page. Point at the gateway chip: `gateway: reachable`.
 
@@ -72,11 +82,18 @@ Point at a row with a non-zero count and open the tooltip:
 
 ## 2:30-3:15 — The gateway, from the other side
 
-Switch to `docker logs -f otari-demo`:
+Switch to the terminal and point at the run line:
 
-> "Here is the same run from Otari's side: the model names, the token counts, and the key that made
-> the calls. The page has no key and no provider URL. It calls my server, my server calls Otari, and
-> Otari calls the provider."
+```
+[digest] gateway=https://otari.ai/api/v1 items=12 tokens=4278 calls=5 ms=95882 roles=distinct
+```
+
+> "Here is the same run from the server side. The gateway host is in the line, the token count is
+> what Otari reported, not my own estimate, and the page never sees the key. The page calls my
+> server, my server calls Otari.ai, and Otari calls the provider."
+
+If you run the self-hosted variant, show `docker logs -f otari-demo` instead and say that it is the
+same gateway image, self-hosted.
 
 Then show the budget refusal, which is the point of the whole exercise:
 
@@ -99,9 +116,11 @@ Then show the budget refusal, which is the point of the whole exercise:
 > config change. And Otari failed closed every time I tested it — it never routed around a limit."
 
 > **What didn't work?**
-> "Provider endpoints refuse a private address with no documented way to say 'this is my own box',
-> even though a setting with that name exists. `OTARI_CONFIG_PATH` did not read a mounted file; only
-> `OTARI_CONFIG_YAML` worked. And a fresh container answers 402 until you turn `require_pricing` off."
+> "On the self-hosted image: provider endpoints refuse a private address with no documented way to
+> say 'this is my own box', even though a setting with that name exists. `OTARI_CONFIG_PATH` is read
+> by docker-compose but not by `otari serve`, so `docker run -e OTARI_CONFIG_PATH=…` starts without a
+> config and says nothing. And a fresh container answers 402 until you turn `require_pricing` off.
+> I filed the first two as issues."
 
 > **What's missing?**
 > "The response tells me which model served the request, but not which alias it routed from, so I
@@ -110,8 +129,8 @@ Then show the budget refusal, which is the point of the whole exercise:
 
 ## 4:00-4:30 — Close
 
-> "The repo is `newsflow-otari-studio`, MIT, no build step, thirty-six tests that run without a
-> network and three that run against a live gateway. The written feedback is in `FEEDBACK.md` with
+> "The repo is `newsflow-otari`, MIT, no build step, fifty-one tests, of which three need a live
+> gateway and skip themselves without one. The written feedback is in `FEEDBACK.md` with
 > the exact commands and responses."
 
 ## Recording

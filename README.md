@@ -1,7 +1,8 @@
 # NewsFlow Studio — Otari edition
 
 A news digest where **one open-weight model triages every story and a second one writes the digest**,
-and every model call goes through a self-hosted [Otari](https://github.com/mozilla-ai/otari) gateway.
+and every model call goes through an [Otari](https://github.com/mozilla-ai/otari) gateway — the hosted
+platform at [otari.ai](https://otari.ai) by default, or the same software self-hosted.
 
 The point is not that a model can summarize the news. The point is that the gateway is the only thing
 that talks to a provider: it decides which model answers, it enforces the token budget before the call
@@ -16,12 +17,36 @@ feed (HN, Lobsters)
   → budget counter, role report, guardrail audit → UI
 ```
 
-## Run it
+## Run it — hosted Otari.ai
+
+The hackathon asks for the hosted platform, so the app points there unless told
+otherwise. You need a key from [otari.ai](https://otari.ai).
 
 ```bash
-# 1. A gateway. The published image is enough for the demo:
+# 1. Which models and which tool the hosted deployment actually serves:
+curl -sS https://otari.ai/api/v1/models -H "Authorization: Bearer $OTARI_API_KEY"
+
+# 2. Name two of those models, one for each role. The names below are examples;
+#    take the real ones from the answer above.
+export OTARI_MODEL_TRIAGE=<small-open-weight-model>
+export OTARI_MODEL_WRITE=<larger-model>
+export OTARI_MODEL_FALLBACK=<third-model>
+
+# 3. The app:
+OTARI_API_KEY=$OTARI_API_KEY npm start     # http://localhost:8787
+```
+
+`OTARI_BASE_URL` overrides the host (default `https://otari.ai/api/v1`).
+
+### Or run the gateway yourself
+
+The hosted platform and the open-source image are the same API, so the demo also
+runs offline. This is how the numbers in this README were measured:
+
+```bash
 docker run -d --name otari-demo -p 8010:8000 \
   -e OTARI_MASTER_KEY="$(openssl rand -hex 16)" \
+  -e OTARI_WEB_FETCH_ENABLED=true \
   -e OTARI_CONFIG_YAML='
 default_pricing: true
 require_pricing: false
@@ -36,19 +61,18 @@ providers:
 ' \
   mzdotai/otari:latest
 
-# 1b. Optional, for the two-model run: a local open-weight model.
+# Optional, for the two-model run: a local open-weight model.
 docker run -d --name ollama -p 11434:11434 -v ollama-models:/root/.ollama ollama/ollama:latest
 docker exec ollama ollama pull qwen2.5:1.5b-instruct
 
-# 2. The key Otari prints once on first boot:
+# The key Otari prints once on first boot:
 docker logs otari-demo 2>&1 | grep -oE 'tk-[A-Za-z0-9_-]+' | head -1
 
-# 3. The app:
-OTARI_API_KEY=tk-... npm start     # http://localhost:8787
+OTARI_BASE_URL=http://localhost:8010/api/v1 OTARI_API_KEY=tk-... npm start
 ```
 
-`OTARI_BASE_URL`, `OTARI_MODEL_TRIAGE`, `OTARI_MODEL_WRITE` and `OTARI_MODEL_FALLBACK` override the
-defaults. The Otari key stays on the server: the page calls `/api/digest` and cannot mint a key or
+`OTARI_MODEL_TRIAGE`, `OTARI_MODEL_WRITE` and `OTARI_MODEL_FALLBACK` name the three models. The Otari
+key stays on the server: the page calls `/api/digest` and cannot mint a key or
 spend a budget of its own.
 
 Two settings let the gateway do more than route models:
