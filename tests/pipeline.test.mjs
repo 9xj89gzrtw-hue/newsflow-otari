@@ -299,3 +299,70 @@ test("an all-irrelevant run still reports the roles it used", async () => {
   assert.equal(out.stats.roles.write, null);
   assert.equal(out.stats.roles.distinct, false);
 });
+
+/** A gateway that serves otari_web_fetch, plus the app's own page fetch. */
+function worldWithGateway({ gatewayAnswer = "Page read through the gateway.", gatewayStatus = 200, page = null } = {}) {
+  const calls = { pages: [] };
+  const fetchImpl = async (url, init) => {
+    if (init && init.method === "POST") {
+      const body = JSON.parse(init.body);
+      const isFetch = (body.tools || []).some((t) => t.type === "otari_web_fetch");
+      if (isFetch && gatewayStatus !== 200) {
+        return { ok: false, status: gatewayStatus, text: async () => '{"detail":"web fetch is not enabled"}' };
+      }
+      const isWriter = body.messages.some((m) => /You write a short technical digest/.test(m.content));
+      const content = isFetch ? gatewayAnswer : isWriter ? "A digest paragraph." : '{"relevant": true, "topic": "ai", "importance": 4}';
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            model: body.model,
+            choices: [{ index: 0, message: { role: "assistant", content } }],
+            usage: { prompt_tokens: 100, completion_tokens: 20 },
+            otari_tool_calls: isFetch
+              ? [{ id: "otari_wf_1", type: "web_fetch", status: "completed", url: body.messages[1].content.replace("URL: ", "") }]
+              : undefined
+          })
+      };
+    }
+    calls.pages.push(url);
+    if (page === null) return { ok: false, status: 404, text: async () => "not found" };
+    return { ok: true, status: 200, text: async () => `<html><body><p>${page}</p></body></html>` };
+  };
+  return { fetchImpl, calls };
+}
+
+test("a page is read through Otari's web_fetch first, and the audit says so", async () => {
+  const { fetchImpl, calls } = worldWithGateway();
+  const client = makeClient(fetchImpl);
+  const { GatewayTools } = await import("../lib/gatewayTools.mjs");
+  const out = await runDigest({
+    items: [items[0]],
+    client,
+    budget: new Budget(),
+    tools: new GatewayTools({ client }),
+    topN: 5
+  });
+
+  assert.equal(out.audit[0].fetched, "ok");
+  assert.equal(out.audit[0].via, "gateway");
+  // the app's own fetch never ran: the gateway served the page
+  assert.deepEqual(calls.pages, []);
+});
+
+test("when the gateway refuses the fetch tool, the app fetches the page itself", async () => {
+  const { fetchImpl, calls } = worldWithGateway({ gatewayStatus: 400, page: "Rust 1.84 ships async closures." });
+  const client = makeClient(fetchImpl);
+  const { GatewayTools } = await import("../lib/gatewayTools.mjs");
+  const out = await runDigest({
+    items: [items[0]],
+    client,
+    budget: new Budget(),
+    tools: new GatewayTools({ client }),
+    topN: 5
+  });
+
+  assert.equal(out.audit[0].via, "direct");
+  assert.deepEqual(calls.pages, [items[0].url]);
+});

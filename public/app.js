@@ -28,6 +28,23 @@
     $("m-fallback").textContent = "localrouter:free-coder";
   }
 
+  function renderUserBudget(user) {
+    if (!user) return;
+    $("user-budget").textContent =
+      `Budget for this browser: ${user.remainingRuns} of ${user.maxRuns} runs and ` +
+      `${user.remainingTokens} of ${user.maxTokens} tokens left` +
+      (user.resetAt ? ` (resets ${new Date(user.resetAt).toLocaleTimeString()})` : "");
+  }
+
+  async function me() {
+    try {
+      const res = await fetch("/api/me");
+      if (res.ok) renderUserBudget((await res.json()).user);
+    } catch {
+      /* the budget line is informative, not load-bearing */
+    }
+  }
+
   function renderStats(s) {
     const box = $("stats");
     box.hidden = false;
@@ -69,7 +86,10 @@
       title.textContent = row.title.length > 78 ? row.title.slice(0, 78) + "…" : row.title;
       const fetch = document.createElement("td");
       fetch.className = "num" + (row.fetched === "ok" ? "" : " err");
-      fetch.textContent = row.fetched;
+      // "gateway" means Otari's own web_fetch read the page; "direct" means the
+      // fallback did. The distinction is the point, so the table shows it.
+      fetch.textContent = row.fetched === "ok" ? row.via || "direct" : row.fetched;
+      if (row.via === "gateway") fetch.title = "read through Otari's otari_web_fetch";
       const inj = document.createElement("td");
       inj.className = "num" + (row.injectedLines.length ? " dirty" : "");
       inj.textContent = row.injectedLines.length ? String(row.injectedLines.length) : "0";
@@ -136,10 +156,16 @@
         })
       });
       const data = await res.json();
+      if (res.status === 429) {
+        hint.textContent = `Your budget is spent: ${data.message}. Try again in ${data.retryAfterSeconds}s.`;
+        renderUserBudget(data.user);
+        return;
+      }
       if (!res.ok || !data.ok) {
         hint.textContent = "Gateway error: " + (data.error || res.status);
         return;
       }
+      renderUserBudget(data.user);
       renderDigest(data);
       renderStats(data);
       renderAudit(data.audit);
@@ -154,4 +180,5 @@
   runBtn.addEventListener("click", run);
   setModels();
   health();
+  me();
 })();

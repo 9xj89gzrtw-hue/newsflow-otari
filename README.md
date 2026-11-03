@@ -51,6 +51,21 @@ OTARI_API_KEY=tk-... npm start     # http://localhost:8787
 defaults. The Otari key stays on the server: the page calls `/api/digest` and cannot mint a key or
 spend a budget of its own.
 
+Two settings let the gateway do more than route models:
+
+```bash
+# the gateway reads each page through its own bounded fetcher (falls back to the
+# app's fetch when the tool is not served, or when OTARI_WEB_FETCH=off)
+-e OTARI_WEB_FETCH_ENABLED=true
+
+# optional: a service key's end-user budget, applied to the `user` id the app sends
+OTARI_END_USER_BUDGET=<budget id from /api/v1/end-user-budgets>
+```
+
+The app's own per-user limits are `USER_MAX_TOKENS` (60000), `USER_MAX_RUNS` (6) and
+`USER_WINDOW_MINUTES` (60). A request past them is refused with `429` and `Retry-After` before any
+model call. `GET /api/me` returns the current window for whoever is asking.
+
 ## Two models in two roles, measured
 
 The config names two models, but a gateway is free to route two aliases to the same upstream model.
@@ -93,6 +108,38 @@ machine, and the model that writes six sentences is the good one. The `roles` fi
 "two models" claim into a measurement, and `tests/live.test.mjs` asserts the report is consistent
 rather than asserting the router was lucky.
 
+### Gateway tools and per-user budgets, measured
+
+Run against the same local gateway with `OTARI_WEB_FETCH_ENABLED=true`:
+
+```
+POST /api/digest  {"feeds":["hacker-news"],"limit":2,"topN":2}
+  X-User-Id: agent1-live-test
+
+ok: true   ms: 95882   tokens: 4278
+audit: fetched=ok via=gateway  "Show HN: Kvittas, an Expense Splitting App"
+       fetched=ok via=gateway  "Show HN: Bema: Work messaging built for humans"
+user:  {runs: 1/6, tokens: 4278, remainingTokens: 55722, resetAt: ...}
+```
+
+Both pages were read by the gateway's own `otari_web_fetch`; the app's fetch never ran. The same
+build with the tool disabled logs `via=direct` for the same stories, which is the fallback the unit
+tests pin.
+
+The per-user window, with `USER_MAX_RUNS=1` and a second request while the first was still running:
+
+```
+HTTP/1.1 429 Too Many Requests
+retry-after: 3540
+
+{"error":"user_budget_exceeded",
+ "message":"this user has started 1 of 1 runs in the current window",
+ "retryAfterSeconds":3540}
+```
+
+A run in flight counts against the window, so two tabs cannot both spend the last of it. The
+reservation is corrected to the actual token count when the run ends.
+
 ## What Otari does here
 
 | Capability | Where it is used, not just enabled |
@@ -102,8 +149,9 @@ rather than asserting the router was lucky.
 | Budgets | `Budget.assertRoom()` throws **before** the call; the counter fills from `usage` |
 | Multiple models, distinct roles | the triage/writer split, verified by `roles` |
 | Guardrails | instruction-shaped text is removed and PII is redacted before any prompt |
-| Per-user budgets | one `Budget` per request; the token cap comes from the page |
-| Web fetch | the app fetches article bodies itself; Otari's `web_fetch` tool is the alternative |
+| Per-user budgets | `UserBudgetStore`: a token and run window per user (`X-User-Id`, session cookie, or address), reserved **before** the run; the same id goes to Otari as `user`, so a service key's end-user budget applies too |
+| Web fetch | the gateway's `otari_web_fetch` reads each story first; the app's own fetch is the fallback, and the audit row says `gateway` or `direct` |
+| Web search | `otari_web_search` resolves a story the feed gave without a link; its sources are the gateway's, not the model's prose |
 
 Otari features that are **not** claimed: MCP integrations and code execution are not used by this
 app, so they earn nothing here.

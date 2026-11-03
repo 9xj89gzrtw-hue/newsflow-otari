@@ -11,7 +11,10 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname, normalize } from "node:path";
+import { createHash } from "node:crypto";
 import { OtariClient, Budget } from "./lib/otari.mjs";
+import { GatewayTools } from "./lib/gatewayTools.mjs";
+import { UserBudgetStore, UserBudgetError } from "./lib/userBudget.mjs";
 import { runDigest } from "./lib/pipeline.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -70,6 +73,7 @@ function client() {
   return new OtariClient({
     baseUrl,
     apiKey,
+    endUserBudgetId: process.env.OTARI_END_USER_BUDGET || null,
     models: {
       triage: process.env.OTARI_MODEL_TRIAGE || "localrouter:free-fast",
       write: process.env.OTARI_MODEL_WRITE || "localrouter:free-best",
@@ -77,6 +81,51 @@ function client() {
     }
   });
 }
+
+/**
+ * One budget per person, not per request. The page sends `X-User-Id` when it
+ * has one; otherwise a signed-out visitor gets a session cookie, and a client
+ * that keeps no cookie is keyed by a hash of its address and user agent.
+ */
+const userBudgets = new UserBudgetStore({
+  maxTokens: Number(process.env.USER_MAX_TOKENS) || 60000,
+  maxRuns: Number(process.env.USER_MAX_RUNS) || 6,
+  windowMs: (Number(process.env.USER_WINDOW_MINUTES) || 60) * 60 * 1000
+});
+
+const cleanUserId = (raw) => {
+  const id = String(raw || "")
+    .replace(/[^A-Za-z0-9._@:-]/g, "")
+    .slice(0, 128);
+  return id.length >= 3 ? id : null;
+};
+
+function identifyUser(req, res) {
+  const fromHeader = cleanUserId(req.headers["x-user-id"]);
+  if (fromHeader) return fromHeader;
+
+  const cookies = {};
+  for (const part of String(req.headers.cookie || "").split(";")) {
+    const index = part.indexOf("=");
+    if (index > 0) cookies[part.slice(0, index).trim()] = part.slice(index + 1).trim();
+  }
+  const fromCookie = cleanUserId(cookies.nf_user);
+  if (fromCookie) return fromCookie;
+
+  // No identity offered: mint one from the caller's address, and remember it
+  // in the browser so a visitor keeps one budget across page loads. A client
+  // that drops cookies still shares one bucket per address.
+  const fresh = fallbackUserKey(req);
+  res.setHeader("set-cookie", `nf_user=${fresh}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
+  return fresh;
+}
+
+/** The same bucket for the same caller when no identity is offered. */
+function fallbackUserKey(req) {
+  const address = req.socket.remoteAddress || "unknown";
+  return `anon-${createHash("sha256").update(`${address}|${req.headers["user-agent"] || ""}`).digest("hex").slice(0, 16)}`;
+}
+
 
 function json(res, code, body) {
   const payload = JSON.stringify(body);
@@ -89,6 +138,8 @@ function json(res, code, body) {
 }
 
 async function handleDigest(req, res) {
+  const userId = identifyUser(req, res);
+
   let body = "";
   for await (const chunk of req) {
     body += chunk;
@@ -101,15 +152,42 @@ async function handleDigest(req, res) {
     return json(res, 400, { error: "body is not JSON" });
   }
 
+  let reservation = null;
   try {
     const feedIds = Array.isArray(input.feeds) && input.feeds.length ? input.feeds : ["hacker-news", "lobsters"];
     const batches = await Promise.all(feedIds.map((id) => readFeed(id, Number(input.limit) || 6)));
     const items = batches.flat().slice(0, 16);
 
+    // The per-user budget is checked before the first model call, with an
+    // estimate of the whole run, so two tabs cannot both spend the last of it.
+    const estimate = items.length * 600 + 2500;
+    try {
+      reservation = userBudgets.reserve(userId, { tokens: estimate, runs: 1 });
+    } catch (err) {
+      if (err instanceof UserBudgetError) {
+        res.setHeader("retry-after", String(err.retryAfterSeconds));
+        return json(res, 429, {
+          ok: false,
+          error: "user_budget_exceeded",
+          message: err.message,
+          retryAfterSeconds: err.retryAfterSeconds,
+          user: { id: userId, ...err.snapshot }
+        });
+      }
+      throw err;
+    }
+
     const budget = new Budget({ maxTokens: Number(input.maxTokens) || 40000, maxUsd: 0.05 });
-    const result = await runDigest({ items, client: client(), budget, topN: Number(input.topN) || 5 });
-    return json(res, 200, { ok: true, ...result });
+    // The gateway bills the end user, not the application, and its own end-user
+    // budget (when the key is a service key) applies beside ours.
+    const runClient = client().forUser(userId);
+    const tools = process.env.OTARI_WEB_FETCH === "off" ? null : new GatewayTools({ client: runClient });
+    const result = await runDigest({ items, client: runClient, budget, tools, topN: Number(input.topN) || 5 });
+
+    const after = reservation.commit(result.stats.budget.tokens);
+    return json(res, 200, { ok: true, user: { id: userId, ...after }, ...result });
   } catch (err) {
+    reservation?.release();
     return json(res, 502, { ok: false, error: err.message, attempts: err.attempts || null });
   }
 }
@@ -118,6 +196,10 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
 
   if (req.method === "POST" && url.pathname === "/api/digest") return handleDigest(req, res);
+  if (req.method === "GET" && url.pathname === "/api/me") {
+    const userId = identifyUser(req, res);
+    return json(res, 200, { ok: true, user: userBudgets.snapshot(userId) });
+  }
   if (url.pathname === "/api/health") return json(res, 200, { ok: true, uptime: process.uptime() });
 
   if (req.method !== "GET" && req.method !== "HEAD") return json(res, 405, { error: "method not allowed" });
