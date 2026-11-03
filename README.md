@@ -140,6 +140,20 @@ retry-after: 3540
 A run in flight counts against the window, so two tabs cannot both spend the last of it. The
 reservation is corrected to the actual token count when the run ends.
 
+Search on the same deployment, where no search provider is configured:
+
+```
+$ node --input-type=module -e '…tools.search("Rust 1.84 async closures")'
+{"ok":false,
+ "reason":"gateway tool: every model failed: localrouter:free-fast \
+           (gateway 400: {\"detail\":\"otari_web_search tool requested but there is \
+           nothing to search with: this gateway has no search …\"})"}
+```
+
+That is the branch, not a crash: a linkless story keeps its feed description and the audit records
+why. A deployment with a search backend fills `otari_tool_calls[].sources` and the app uses those
+URLs instead of asking the model to name a source.
+
 ## What Otari does here
 
 | Capability | Where it is used, not just enabled |
@@ -149,9 +163,9 @@ reservation is corrected to the actual token count when the run ends.
 | Budgets | `Budget.assertRoom()` throws **before** the call; the counter fills from `usage` |
 | Multiple models, distinct roles | the triage/writer split, verified by `roles` |
 | Guardrails | instruction-shaped text is removed and PII is redacted before any prompt |
-| Per-user budgets | `UserBudgetStore`: a token and run window per user (`X-User-Id`, session cookie, or address), reserved **before** the run; the same id goes to Otari as `user`, so a service key's end-user budget applies too |
+| Per-user budgets | `UserBudgetStore`: a token and run window per user (`X-User-Id`, session cookie, or address), reserved **before** the run. With `OTARI_END_USER_BUDGET` set, the same id also goes to Otari as `user` + `Otari-End-User-Budget`; without it the id stays in the app, because a non-service key refuses a `user` that is not its own |
 | Web fetch | the gateway's `otari_web_fetch` reads each story first; the app's own fetch is the fallback, and the audit row says `gateway` or `direct` |
-| Web search | `otari_web_search` resolves a story the feed gave without a link; its sources are the gateway's, not the model's prose |
+| Web search | `otari_web_search` resolves a story the feed gave without a link; its sources are the gateway's, not the model's prose. Wired and unit-tested; the free deployment used here has no search backend, so the live run logged the gateway's 400 and fell back to the direct fetch (see below) |
 
 Otari features that are **not** claimed: MCP integrations and code execution are not used by this
 app, so they earn nothing here.
@@ -172,13 +186,15 @@ A row with no flags means the screen ran and found nothing. That is a different 
 ## Tests
 
 ```bash
-npm test        # 36 checks, no network
+npm test        # 51 checks, no network
 npm run test:live   # 3 checks against a running gateway
 ```
 
 The unit tests cover the injection/PII screen, the gateway client (key handling, error mapping,
 fallback ordering, budget refusals) and the pipeline (triage filtering, dead pages, timeouts, a
-triage outage, the empty digest, the token cap, and both role-report outcomes). The live tests skip
+triage outage, the empty digest, the token cap, and both role-report outcomes), the gateway tools
+(forced calls, a gateway that ran no tool, a release that reports no tool calls at all) and the
+per-user window (reservation, commit, release, `429` with `Retry-After`). The live tests skip
 themselves unless `OTARI_LIVE=1`, so CI never depends on a free router being up.
 
 ## Files
@@ -188,6 +204,8 @@ themselves unless `OTARI_LIVE=1`, so CI never depends on a free router being up.
 | `lib/guardrails.mjs` | injection and PII screen, with an audit trail |
 | `lib/otari.mjs` | gateway client, `Budget`, `GatewayError` |
 | `lib/pipeline.mjs` | fetch → screen → triage → write, plus the role report |
+| `lib/gatewayTools.mjs` | forced `otari_web_fetch` / `otari_web_search`, with the app's fetch as fallback |
+| `lib/userBudget.mjs` | per-user token and run window, reserved before the run, corrected after |
 | `server.mjs` | static UI, `/api/digest`, `/api/health`, RSS parsing |
 | `public/` | the page: no framework, no build step, no key |
 | `tests/` | unit tests and the opt-in live suite |

@@ -81,3 +81,21 @@ test("a search with no sources is reported as such", async () => {
   const out = await new GatewayTools({ client: clientWith(fetchImpl) }).search("nothing");
   assert.equal(out.ok, false);
 });
+
+// A release older than `otari_tool_calls` reports nothing. For a fetch the
+// forced call still put the page in the answer, so the text is usable; for a
+// search there is no answer to read, and a URL must never be invented.
+test("a gateway that does not report tool calls still yields the fetched text", async () => {
+  const { fetchImpl } = gateway({ content: "Rust 1.84 ships async closures.", calls: null });
+  const out = await new GatewayTools({ client: clientWith(fetchImpl) }).fetchPage("https://a.example/rust");
+  assert.equal(out.ok, true);
+  assert.match(out.text, /async closures/);
+  assert.equal(out.url, "https://a.example/rust");
+});
+
+test("a gateway that does not report tool calls yields no search sources", async () => {
+  const { fetchImpl } = gateway({ content: "https://made-up.example/rust", calls: null });
+  const out = await new GatewayTools({ client: clientWith(fetchImpl) }).search("Rust async closures");
+  assert.equal(out.ok, false);
+  assert.match(out.reason, /no sources/);
+});
